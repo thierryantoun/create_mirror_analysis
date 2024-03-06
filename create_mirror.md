@@ -300,7 +300,7 @@ struct MirrorViewType {
 };
 ```
 
-4. Cette surcharge suit les mêmes conditions de compilation que la surcharge 3. Elle fait ensuite appel à la 2eme surcharge de create_mirror. 
+4. Cette surcharge fait appel à la 2eme surcharge de create_mirror. 
 Rappel: Cette surcharge renvoie un ```cpp Impl::MirrorType<typename alloc_prop::memory_space, T, P...>::view_type(prop_copy, src.layout()) ``` alors que cette fonction ci-dessous indique retourner un view_type issu d'un MirrorViewType. Redondance ?
 
 ```cpp 
@@ -325,10 +325,78 @@ create_mirror_view(const Kokkos::View<T, P...>& src,
 
 ## Autres surcharges. 
 
+1. Cette surcharge prend simplement une const View qui a le même memory_space et le même data_type que la View::HostMirror et renvoie cette View qui est de fait une View::HostMirror.
 
+```cpp 
+template <class T, class... P>
 
+// Si le memory_space et le data_type entre la View et la View::HostMirror sont les mêmes, le type retourné est un View::HostMirror
+std::enable_if_t<
+    std::is_same<
+        typename Kokkos::View<T, P...>::memory_space,
+        typename Kokkos::View<T, P...>::HostMirror::memory_space>::value &&
+        std::is_same<
+            typename Kokkos::View<T, P...>::data_type,
+            typename Kokkos::View<T, P...>::HostMirror::data_type>::value,
+    typename Kokkos::View<T, P...>::HostMirror>
+create_mirror_view(const Kokkos::View<T, P...>& src) {
+  return src;
+}
+```
 
+2. Cette surcharge prend en argument une const View et fait appel à la surcharge 1. de ##autres-surcharges .
 
+```cpp 
+template <class T, class... P>
+
+// Si le View::memory_space est différent que le View::HostMirror::memory_space ou si leur data_type sont différents
+// Alors le type de sortie est un View::HostMirror
+
+std::enable_if_t<
+    !(std::is_same<
+          typename Kokkos::View<T, P...>::memory_space,
+          typename Kokkos::View<T, P...>::HostMirror::memory_space>::value &&
+      std::is_same<
+          typename Kokkos::View<T, P...>::data_type,
+          typename Kokkos::View<T, P...>::HostMirror::data_type>::value),
+    typename Kokkos::View<T, P...>::HostMirror>
+create_mirror_view(const Kokkos::View<T, P...>& src) {
+  return Kokkos::create_mirror(src);
+}
+```
+3. Cette surcharge prend en argument un view_alloc sur un WithoutInitializing. Il fait appel à la surcharge 1. ou 2. des principales surcharges de create_mirror_view suivant les paramètres de la View passés en argument. Elle retourne la View::HostMirror avec l'agument WithoutInitializing.
+
+```cpp 
+template <class T, class... P>
+typename Kokkos::View<T, P...>::HostMirror create_mirror_view(
+    Kokkos::Impl::WithoutInitializing_t wi, Kokkos::View<T, P...> const& v) {
+  return Impl::create_mirror_view(v, view_alloc(wi));
+}
+```
+
+4. Cette surcharge prend en argument une View, un paramètre WithoutInitializing et une const reference à un Space. 
+
+```cpp 
+// Vérification du template Space.
+template <class Space, class T, class... P,
+          typename Enable = std::enable_if_t<Kokkos::is_space<Space>::value>>
+typename Impl::MirrorViewType<Space, T, P...>::view_type create_mirror_view(
+    Kokkos::Impl::WithoutInitializing_t wi, Space const&,
+    Kokkos::View<T, P...> const& v) {
+  return Impl::create_mirror_view(
+      v, view_alloc(typename Space::memory_space{}, wi));
+}
+```
+
+5. Je ne comprends pas pourquoi on ne garde pas que celle-là ? Si dans ViewCtorArgs peuvent être appelés des WithoutInitializing et des Space, quelle est la plus value des surcharges 3.4. de cette même section par rapport à celle-là ?
+
+```cpp
+template <class T, class... P, class... ViewCtorArgs>
+auto create_mirror_view(const Impl::ViewCtorProp<ViewCtorArgs...>& arg_prop,
+                        const Kokkos::View<T, P...>& v) {
+  return Impl::create_mirror_view(v, arg_prop);
+}
+```
 
 
 
